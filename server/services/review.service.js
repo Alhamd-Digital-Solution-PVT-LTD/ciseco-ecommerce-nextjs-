@@ -1,31 +1,17 @@
-/**
- * Title: Write a program using JavaScript on Review Service
- * Author: Hasibul Islam
- * Portfolio: https://devhasibulislam.vercel.app
- * Linkedin: https://linkedin.com/in/devhasibulislam
- * GitHub: https://github.com/devhasibulislam
- * Facebook: https://facebook.com/devhasibulislam
- * Instagram: https:/instagram.com/devhasibulislam
- * Twitter: https://twitter.com/devhasibulislam
- * Pinterest: https://pinterest.com/devhasibulislam
- * WhatsApp: https://wa.me/8801906315901
- * Telegram: devhasibulislam
- * Date: 09, January 2024
- */
-
-/* internal imports */
-const Product = require("../models/product.model");
-const Review = require("../models/review.model");
-const User = require("../models/user.model");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
 /* add to review */
 exports.addReview = async (req, res) => {
-  const user = await User.findById(req.user._id);
   const { product, rating, comment } = req.body;
 
-  const productExists = await Product.exists({
-    _id: product,
-    buyers: user._id,
+  const productExists = await prisma.product.findFirst({
+    where: {
+      id: product,
+      buyers: {
+        some: { id: req.user._id }
+      }
+    }
   });
 
   if (!productExists) {
@@ -36,19 +22,13 @@ exports.addReview = async (req, res) => {
     });
   }
 
-  const review = await Review.create({
-    reviewer: user._id,
-    product: product,
-    rating: rating,
-    comment: comment,
-  });
-
-  await Product.findByIdAndUpdate(product, {
-    $push: { reviews: review._id },
-  });
-
-  await User.findByIdAndUpdate(user._id, {
-    $push: { reviews: review._id },
+  await prisma.review.create({
+    data: {
+      reviewerId: req.user._id,
+      productId: product,
+      rating: rating,
+      comment: comment,
+    }
   });
 
   res.status(201).json({
@@ -60,7 +40,9 @@ exports.addReview = async (req, res) => {
 
 /* get from review */
 exports.getReviews = async (res) => {
-  const reviews = await Review.find().sort({ updatedAt: 1 });
+  const reviews = await prisma.review.findMany({
+    orderBy: { updatedAt: "asc" }
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -72,7 +54,10 @@ exports.getReviews = async (res) => {
 
 /* update review */
 exports.updateReview = async (req, res) => {
-  await Review.findByIdAndUpdate(req.params.id, req.body);
+  await prisma.review.update({
+    where: { id: req.params.id },
+    data: req.body
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -83,14 +68,8 @@ exports.updateReview = async (req, res) => {
 
 /* delete review */
 exports.deleteReview = async (req, res) => {
-  const review = await Review.findByIdAndDelete(req.params.id);
-
-  await Product.findByIdAndUpdate(review.product, {
-    $pull: { reviews: review._id },
-  });
-
-  await User.findByIdAndUpdate(review.reviewer, {
-    $pull: { reviews: review._id },
+  await prisma.review.delete({
+    where: { id: req.params.id }
   });
 
   res.status(200).json({

@@ -1,70 +1,45 @@
-/**
- * Title: Write a program using JavaScript on Product Service
- * Author: Hasibul Islam
- * Portfolio: https://devhasibulislam.vercel.app
- * Linkedin: https://linkedin.com/in/devhasibulislam
- * GitHub: https://github.com/devhasibulislam
- * Facebook: https://facebook.com/devhasibulislam
- * Instagram: https:/instagram.com/devhasibulislam
- * Twitter: https://twitter.com/devhasibulislam
- * Pinterest: https://pinterest.com/devhasibulislam
- * WhatsApp: https://wa.me/8801906315901
- * Telegram: devhasibulislam
- * Date: 11, November 2023
- */
-
-/* internal import */
-const Product = require("../models/product.model");
-const Category = require("../models/category.model");
-const Store = require("../models/store.model");
-const Brand = require("../models/brand.model");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 const remove = require("../utils/remove.util");
-const Review = require("../models/review.model");
-const User = require("../models/user.model");
 
-/* add new product */
 exports.addProduct = async (req, res) => {
   const { features, campaign, variations, ...otherInformation } = req.body;
-  let thumbnail = null;
+  let thumbUrl = "https://placehold.co/296x200.png";
+  let thumbId = "N/A";
   let gallery = [];
 
   const parsedFeatures = JSON.parse(features);
   const parsedCampaign = JSON.parse(campaign);
   const parsedVariations = JSON.parse(variations);
 
-  if (req.files.thumbnail.length) {
-    thumbnail = {
-      url: req.files.thumbnail[0].path,
-      public_id: req.files.thumbnail[0].filename,
-    };
+  if (req.files.thumbnail?.length) {
+    thumbUrl = req.files.thumbnail[0].path;
+    thumbId = req.files.thumbnail[0].filename;
   }
 
-  if (req.files.gallery.length) {
+  if (req.files.gallery?.length) {
     gallery = req.files.gallery.map((file) => ({
       url: file.path,
       public_id: file.filename,
     }));
   }
 
-  const product = await Product.create({
-    ...otherInformation,
+  const productData = {
+    title: otherInformation.title,
+    summary: otherInformation.summary,
+    price: Number(otherInformation.price),
     features: parsedFeatures,
     campaign: parsedCampaign,
     variations: parsedVariations,
-    thumbnail,
+    thumbUrl,
+    thumbId,
     gallery,
-  });
+    categoryId: otherInformation.category,
+    brandId: otherInformation.brand,
+    storeId: otherInformation.store
+  };
 
-  // add product id to category, brand and store
-  await Category.findByIdAndUpdate(product.category, {
-    $push: { products: product._id },
-  });
-  await Brand.findByIdAndUpdate(product.brand, {
-    $push: { products: product._id },
-  });
-  await Store.findByIdAndUpdate(product.store, {
-    $push: { products: product._id },
-  });
+  const product = await prisma.product.create({ data: productData });
 
   res.status(201).json({
     acknowledgement: true,
@@ -73,25 +48,22 @@ exports.addProduct = async (req, res) => {
   });
 };
 
-/* get all products */
 exports.getProducts = async (res) => {
-  const products = await Product.find().populate([
-    "category",
-    "brand",
-    "store",
-    {
-      path: "reviews",
-      options: { sort: { updatedAt: -1 } },
-      populate: [
-        "reviewer",
-        {
-          path: "product",
-          populate: ["brand", "category", "store"],
-        },
-      ],
-    },
-    "buyers",
-  ]);
+  const products = await prisma.product.findMany({
+    include: {
+      category: true,
+      brand: true,
+      store: true,
+      buyers: true,
+      reviews: {
+        orderBy: { updatedAt: "desc" },
+        include: {
+          reviewer: true,
+          product: { include: { brand: true, category: true, store: true } }
+        }
+      }
+    }
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -101,24 +73,22 @@ exports.getProducts = async (res) => {
   });
 };
 
-/* get a single product */
 exports.getProduct = async (req, res) => {
-  const product = await Product.findById(req.params.id).populate([
-    "category",
-    "brand",
-    "store",
-    {
-      path: "reviews",
-      options: { sort: { updatedAt: -1 } },
-      populate: [
-        "reviewer",
-        {
-          path: "product",
-          populate: ["brand", "category", "store"],
-        },
-      ],
-    },
-  ]);
+  const product = await prisma.product.findUnique({
+    where: { id: req.params.id },
+    include: {
+      category: true,
+      brand: true,
+      store: true,
+      reviews: {
+        orderBy: { updatedAt: "desc" },
+        include: {
+          reviewer: true,
+          product: { include: { brand: true, category: true, store: true } }
+        }
+      }
+    }
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -128,28 +98,22 @@ exports.getProduct = async (req, res) => {
   });
 };
 
-/* filtered products */
 exports.getFilteredProducts = async (req, res) => {
   try {
     let filter = {};
 
-    if (req.query.category != "null") {
-      filter.category = req.query.category;
-    }
+    if (req.query.category && req.query.category != "null") filter.categoryId = req.query.category;
+    if (req.query.brand && req.query.brand != "null") filter.brandId = req.query.brand;
+    if (req.query.store && req.query.store != "null") filter.storeId = req.query.store;
 
-    if (req.query.brand != "null") {
-      filter.brand = req.query.brand;
-    }
-
-    if (req.query.store != "null") {
-      filter.store = req.query.store;
-    }
-
-    const products = await Product.find(filter).populate([
-      "category",
-      "brand",
-      "store",
-    ]);
+    const products = await prisma.product.findMany({
+      where: filter,
+      include: {
+        category: true,
+        brand: true,
+        store: true,
+      }
+    });
 
     res.status(200).json({
       acknowledgement: true,
@@ -168,40 +132,45 @@ exports.getFilteredProducts = async (req, res) => {
   }
 };
 
-/* update product */
 exports.updateProduct = async (req, res) => {
-  const product = await Product.findById(req.params.id);
-  const updatedProduct = req.body;
+  const product = await prisma.product.findUnique({ where: { id: req.params.id } });
+  
+  let thumbUrl = product.thumbUrl;
+  let thumbId = product.thumbId;
+  let gallery = product.gallery || [];
 
   if (!req.body.thumbnail && req.files && req.files.thumbnail?.length > 0) {
-    remove(product.thumbnail.public_id);
-
-    updatedProduct.thumbnail = {
-      url: req.files.thumbnail[0].path,
-      public_id: req.files.thumbnail[0].filename,
-    };
+    if (thumbId !== "N/A") await remove(thumbId);
+    thumbUrl = req.files.thumbnail[0].path;
+    thumbId = req.files.thumbnail[0].filename;
   }
 
-  if (
-    !req.body.gallery?.length > 0 &&
-    req.files &&
-    req.files.gallery?.length > 0
-  ) {
-    for (let i = 0; i < product.gallery.length; i++) {
-      await remove(product.gallery[i].public_id);
+  if (!req.body.gallery?.length > 0 && req.files && req.files.gallery?.length > 0) {
+    for (let i = 0; i < gallery.length; i++) {
+      if (gallery[i].public_id) await remove(gallery[i].public_id);
     }
-
-    updatedProduct.gallery = req.files.gallery.map((file) => ({
+    gallery = req.files.gallery.map((file) => ({
       url: file.path,
       public_id: file.filename,
     }));
   }
 
-  updatedProduct.features = JSON.parse(req.body.features);
-  updatedProduct.campaign = JSON.parse(req.body.campaign);
-  updatedProduct.variations = JSON.parse(req.body.variations);
+  const updatedData = {
+    title: req.body.title || product.title,
+    summary: req.body.summary || product.summary,
+    price: req.body.price ? Number(req.body.price) : product.price,
+    features: req.body.features ? JSON.parse(req.body.features) : product.features,
+    campaign: req.body.campaign ? JSON.parse(req.body.campaign) : product.campaign,
+    variations: req.body.variations ? JSON.parse(req.body.variations) : product.variations,
+    thumbUrl,
+    thumbId,
+    gallery,
+  };
 
-  await Product.findByIdAndUpdate(req.params.id, { $set: updatedProduct });
+  await prisma.product.update({
+    where: { id: req.params.id },
+    data: updatedData
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -210,44 +179,25 @@ exports.updateProduct = async (req, res) => {
   });
 };
 
-/* delete product */
 exports.deleteProduct = async (req, res) => {
-  const product = await Product.findByIdAndDelete(req.params.id);
+  const product = await prisma.product.findUnique({ where: { id: req.params.id } });
 
-  // delete product thumbnail & gallery
-  if (product.thumbnail) {
-    await remove(product.thumbnail.public_id);
+  if (product.thumbId && product.thumbId !== "N/A") {
+    await remove(product.thumbId);
   }
 
   if (product.gallery && product.gallery.length > 0) {
     for (let i = 0; i < product.gallery.length; i++) {
-      await remove(product.gallery[i].public_id);
+      if (product.gallery[i].public_id) await remove(product.gallery[i].public_id);
     }
   }
 
-  // also delete from category, brand & store
-  await Category.findByIdAndUpdate(product.category, {
-    $pull: { products: product._id },
-  });
-  await Brand.findByIdAndUpdate(product.brand, {
-    $pull: { products: product._id },
-  });
-  await Store.findByIdAndUpdate(product.store, {
-    $pull: { products: product._id },
-  });
+  // Delete associated reviews
+  await prisma.review.deleteMany({ where: { productId: product.id } });
+  await prisma.cart.deleteMany({ where: { productId: product.id } });
+  await prisma.favorite.deleteMany({ where: { productId: product.id } });
 
-  // delete this product from users products array
-  await User.updateMany(
-    { products: product._id },
-    { $pull: { products: product._id } }
-  );
-
-  // delete reviews that belong to this product also remove those reviews from users reviews array
-  await Review.deleteMany({ product: product._id });
-  await User.updateMany(
-    { reviews: { $in: product.reviews } },
-    { $pull: { reviews: { $in: product.reviews } } }
-  );
+  await prisma.product.delete({ where: { id: product.id } });
 
   res.status(200).json({
     acknowledgement: true,

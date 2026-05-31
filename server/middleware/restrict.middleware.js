@@ -13,11 +13,15 @@
  * Date: 20, November 2023
  */
 
-const User = require("../models/user.model");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
 async function restrict(req, res, next) {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await prisma.user.findUnique({
+      where: { id: req.user._id },
+      include: { store: true }
+    });
     if (user.store) {
       return res.status(405).json({
         acknowledgement: false,

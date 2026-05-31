@@ -13,8 +13,8 @@
  * Date: 09, November 2023
  */
 
-/* external imports */
-const mongoose = require("mongoose");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 require("dotenv").config();
 
 /* internal imports */
@@ -23,12 +23,8 @@ const consoleMessage = require("./utils/console.util");
 const port = process.env.PORT || 3000;
 
 /* database connection */
-mongoose
-  .connect(process.env.ATLAS_URI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
-  .then(() => consoleMessage.successMessage("Connected to MongoDB."))
+prisma.$connect()
+  .then(() => consoleMessage.successMessage("Connected to MySQL."))
   .catch((error) => consoleMessage.errorMessage(error.message));
 
 /* establish server port */

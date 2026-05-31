@@ -1,34 +1,26 @@
-/**
- * Title: Write a program using JavaScript on Favorite Service
- * Author: Hasibul Islam
- * Portfolio: https://devhasibulislam.vercel.app
- * Linkedin: https://linkedin.com/in/devhasibulislam
- * GitHub: https://github.com/devhasibulislam
- * Facebook: https://facebook.com/devhasibulislam
- * Instagram: https:/instagram.com/devhasibulislam
- * Twitter: https://twitter.com/devhasibulislam
- * Pinterest: https://pinterest.com/devhasibulislam
- * WhatsApp: https://wa.me/8801906315901
- * Telegram: devhasibulislam
- * Date: 09, January 2024
- */
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
-/* internal imports */
-const Favorite = require("../models/favorite.model");
-const User = require("../models/user.model");
-
-/* add to favorite */
 exports.addToFavorite = async (req, res) => {
-  const user = await User.findById(req.user._id);
   const { product } = req.body;
 
-  const favorite = await Favorite.create({
-    user: user._id,
-    product: product,
+  const isExist = await prisma.favorite.findFirst({
+    where: { productId: product, userId: req.user._id }
   });
 
-  await User.findByIdAndUpdate(user._id, {
-    $push: { favorites: favorite._id },
+  if (isExist) {
+    return res.status(409).json({
+      acknowledgement: false,
+      message: "Conflict",
+      description: "Product already in favorite",
+    });
+  }
+
+  await prisma.favorite.create({
+    data: {
+      userId: req.user._id,
+      productId: product,
+    }
   });
 
   res.status(201).json({
@@ -38,9 +30,10 @@ exports.addToFavorite = async (req, res) => {
   });
 };
 
-/* get favorite */
 exports.getFavorites = async (res) => {
-  const favorites = await Favorite.find().populate(["product", "user"]);
+  const favorites = await prisma.favorite.findMany({
+    include: { product: true, user: true }
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -50,12 +43,9 @@ exports.getFavorites = async (res) => {
   });
 };
 
-/* delete favorite */
 exports.deleteFromFavorite = async (req, res) => {
-  const favorite = await Favorite.findByIdAndDelete(req.params.id);
-
-  await User.findByIdAndUpdate(favorite.user, {
-    $pull: { favorites: favorite._id },
+  await prisma.favorite.delete({
+    where: { id: req.params.id }
   });
 
   res.status(200).json({

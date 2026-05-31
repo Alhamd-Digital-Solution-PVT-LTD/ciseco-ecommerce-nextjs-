@@ -1,0 +1,213 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  admin
+  buyer
+  seller
+}
+
+enum Status {
+  active
+  inactive
+}
+
+enum CampaignState {
+  new_arrival @map("new-arrival")
+  discount
+  sold_out    @map("sold-out")
+  on_sale     @map("on-sale")
+}
+
+enum PurchaseStatus {
+  pending
+  delivered
+}
+
+model User {
+  id        String     @id @default(uuid())
+  name      String     @db.VarChar(100)
+  email     String     @unique
+  password  String
+  avatarUrl String?    @default("https://placehold.co/300x300.png")
+  avatarId  String?    @default("N/A")
+  phone     String     @unique
+  role      Role       @default(buyer)
+  status    Status     @default(active)
+  address   String?    @db.VarChar(500) @default("N/A")
+
+  // Relations
+  cart           Cart[]
+  favorites      Favorite[]
+  reviews        Review[]
+  purchases      Purchase[]
+  store          Store?
+  brandsCreated  Brand[]
+  categories     Category[]
+  productsBought Product[]  @relation("ProductBuyers")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  title       String   @unique @db.VarChar(100)
+  summary     String   @db.VarChar(500)
+  thumbUrl    String   @default("https://placehold.co/296x200.png")
+  thumbId     String   @default("N/A")
+  price       Float
+
+  // JSON columns for nested/array data that doesn't need strict relations
+  gallery     Json?    // Array of { url, public_id }
+  features    Json?    // Array of { title, content: [] }
+  variations  Json?    // { colors: [], sizes: [] }
+  campaign    Json?    // { title, state }
+
+  // Relations
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  brandId     String?
+  brand       Brand?    @relation(fields: [brandId], references: [id])
+  storeId     String?
+  store       Store?    @relation(fields: [storeId], references: [id])
+  
+  buyers      User[]    @relation("ProductBuyers")
+  reviews     Review[]
+  cartItems   Cart[]
+  favorites   Favorite[]
+  purchases   PurchaseProduct[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  title       String   @unique @db.VarChar(100)
+  description String   @db.VarChar(500)
+  thumbUrl    String   @default("https://placehold.co/296x200.png")
+  thumbId     String   @default("N/A")
+  
+  keynotes    Json?    // Array of strings
+  tags        Json?    // Array of strings
+
+  products    Product[]
+  creatorId   String?
+  creator     User?    @relation(fields: [creatorId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Store {
+  id          String   @id @default(uuid())
+  title       String   @unique @db.VarChar(100)
+  description String   @db.VarChar(500)
+  thumbUrl    String   @default("https://placehold.co/296x200.png")
+  thumbId     String   @default("N/A")
+  status      Status   @default(active)
+  
+  keynotes    Json?    // Array of strings
+  tags        Json?    // Array of strings
+
+  ownerId     String?  @unique
+  owner       User?    @relation(fields: [ownerId], references: [id])
+  products    Product[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Brand {
+  id          String   @id @default(uuid())
+  title       String   @unique @db.VarChar(100)
+  description String   @db.VarChar(500)
+  logoUrl     String   @default("https://placehold.co/296x200.png")
+  logoId      String   @default("N/A")
+  
+  keynotes    Json?    // Array of strings
+  tags        Json?    // Array of strings
+
+  creatorId   String?
+  creator     User?    @relation(fields: [creatorId], references: [id])
+  products    Product[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Review {
+  id          String   @id @default(uuid())
+  rating      Int
+  comment     String   @db.VarChar(200)
+
+  reviewerId  String?
+  reviewer    User?    @relation(fields: [reviewerId], references: [id])
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Purchase {
+  id          String         @id @default(uuid())
+  customerId  String
+  customer    User           @relation(fields: [customerId], references: [id])
+  
+  // Custom fields from schema
+  stripeCusId String         @map("stripe_customer_id") // Was customerId in mongoose
+  orderId     String
+  totalAmount Float
+  status      PurchaseStatus @default(pending)
+
+  // Products in purchase
+  products    PurchaseProduct[]
+
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+// Join table for Purchase <-> Product with quantity
+model PurchaseProduct {
+  id          String   @id @default(uuid())
+  purchaseId  String
+  purchase    Purchase @relation(fields: [purchaseId], references: [id])
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id])
+  quantity    Int      @default(1)
+
+  @@unique([purchaseId, productId])
+}
+
+model Cart {
+  id          String   @id @default(uuid())
+  quantity    Int      @default(1)
+
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Favorite {
+  id          String   @id @default(uuid())
+
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id])
+  productId   String?
+  product     Product? @relation(fields: [productId], references: [id])
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

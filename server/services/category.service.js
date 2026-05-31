@@ -1,127 +1,112 @@
-/**
- * Title: Write a program using JavaScript on Category Service
- * Author: Hasibul Islam
- * Portfolio: https://devhasibulislam.vercel.app
- * Linkedin: https://linkedin.com/in/devhasibulislam
- * GitHub: https://github.com/devhasibulislam
- * Facebook: https://facebook.com/devhasibulislam
- * Instagram: https:/instagram.com/devhasibulislam
- * Twitter: https://twitter.com/devhasibulislam
- * Pinterest: https://pinterest.com/devhasibulislam
- * WhatsApp: https://wa.me/8801906315901
- * Telegram: devhasibulislam
- * Date: 11, November 2023
- */
-
-/* internal import */
-const Category = require("../models/category.model");
-const Product = require("../models/product.model");
-const User = require("../models/user.model");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 const remove = require("../utils/remove.util");
 
-/* add new category */
 exports.addCategory = async (req, res) => {
-  const { body, file } = req;
+  const existingCat = await prisma.category.findFirst({ where: { title: req.body.title } });
 
-  const category = new Category({
-    title: body.title,
-    description: body.description,
-    thumbnail: {
-      url: file.path,
-      public_id: file.filename,
-    },
-    keynotes: JSON.parse(body.keynotes),
-    tags: JSON.parse(body.tags),
-    creator: req.user._id,
-  });
+  if (existingCat) {
+    return res.status(409).json({
+      acknowledgement: false,
+      message: "Conflict",
+      description: "Category already exists",
+    });
+  }
 
-  const result = await category.save();
+  const catData = { ...req.body, creatorId: req.user._id };
+  if (req.file) {
+    catData.thumbUrl = req.file.path;
+    catData.thumbId = req.file.filename;
+  }
 
-  await User.findByIdAndUpdate(result.creator, {
-    $set: {
-      category: result._id,
-    },
-  });
+  if (catData.title) {
+    catData.title = catData.title.toLowerCase().split(" ").map(s => s.charAt(0).toUpperCase() + s.substring(1)).join(" ");
+  }
+  if (catData.tags) {
+    catData.tags = catData.tags.map(tag => tag.replace(" ", "-").toLowerCase());
+  }
+
+  const category = await prisma.category.create({ data: catData });
 
   res.status(201).json({
     acknowledgement: true,
     message: "Created",
     description: "Category created successfully",
+    data: category
   });
 };
 
-/* get all categories */
 exports.getCategories = async (res) => {
-  const categories = await Category.find().populate([
-    "creator",
-    {
-      path: "products",
-      populate: ["category", "brand", "store"],
-    },
-  ]);
+  const categories = await prisma.category.findMany({ include: { creator: true } });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Categories fetched successfully",
+    message: "OK",
+    description: "Categories retrieved successfully",
     data: categories,
   });
 };
 
-/* get a category */
 exports.getCategory = async (req, res) => {
-  const category = await Category.findById(req.params.id);
+  const category = await prisma.category.findUnique({
+    where: { id: req.params.id },
+    include: { creator: true, products: true }
+  });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Category fetched successfully",
+    message: "OK",
+    description: `${category.title}'s information retrieved successfully`,
     data: category,
   });
 };
 
-/* update category */
 exports.updateCategory = async (req, res) => {
-  const category = await Category.findById(req.params.id);
-  let updatedCategory = req.body;
+  const existingCat = await prisma.category.findUnique({ where: { id: req.params.id } });
+  const catData = { ...req.body };
 
   if (!req.body.thumbnail && req.file) {
-    await remove(category.thumbnail.public_id);
-
-    updatedCategory.thumbnail = {
-      url: req.file.path,
-      public_id: req.file.filename,
-    };
+    await remove(existingCat.thumbId);
+    catData.thumbUrl = req.file.path;
+    catData.thumbId = req.file.filename;
   }
 
-  updatedCategory.keynotes = JSON.parse(req.body.keynotes);
-  updatedCategory.tags = JSON.parse(req.body.tags);
+  if (catData.title) {
+    catData.title = catData.title.toLowerCase().split(" ").map(s => s.charAt(0).toUpperCase() + s.substring(1)).join(" ");
+  }
+  if (catData.tags) {
+    catData.tags = catData.tags.map(tag => tag.replace(" ", "-").toLowerCase());
+  }
 
-  await Category.findByIdAndUpdate(req.params.id, updatedCategory);
+  const updatedCat = await prisma.category.update({
+    where: { id: existingCat.id },
+    data: catData
+  });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Category updated successfully",
+    message: "OK",
+    description: `${updatedCat.title}'s information updated successfully`,
   });
 };
 
-/* delete category */
-exports.deleteCategory = async (req, res, next) => {
-  const category = await Category.findByIdAndDelete(req.params.id);
-  await remove(category.thumbnail.public_id);
-
-  await Product.updateMany(
-    { category: req.params.id },
-    { $unset: { category: "" } }
-  );
-  await User.findByIdAndUpdate(category.creator, {
-    $unset: { category: "" },
+exports.deleteCategory = async (req, res) => {
+  const category = await prisma.category.findUnique({
+    where: { id: req.params.id },
+    include: { products: true }
   });
+
+  await remove(category.thumbId);
+
+  for (const prod of category.products) {
+    await prisma.product.delete({ where: { id: prod.id } });
+  }
+
+  await prisma.category.delete({ where: { id: category.id } });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Category deleted successfully",
+    message: "OK",
+    description: `${category.title}'s information deleted successfully`,
   });
 };

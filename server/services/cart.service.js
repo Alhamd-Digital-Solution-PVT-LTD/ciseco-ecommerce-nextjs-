@@ -1,78 +1,69 @@
-/**
- * Title: Write a program using JavaScript on Cart Service
- * Author: Hasibul Islam
- * Portfolio: https://devhasibulislam.vercel.app
- * Linkedin: https://linkedin.com/in/devhasibulislam
- * GitHub: https://github.com/devhasibulislam
- * Facebook: https://facebook.com/devhasibulislam
- * Instagram: https:/instagram.com/devhasibulislam
- * Twitter: https://twitter.com/devhasibulislam
- * Pinterest: https://pinterest.com/devhasibulislam
- * WhatsApp: https://wa.me/8801906315901
- * Telegram: devhasibulislam
- * Date: 09, January 2024
- */
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 
-/* internal imports */
-const Cart = require("../models/cart.model");
-const User = require("../models/user.model");
-
-/* add to cart */
 exports.addToCart = async (req, res) => {
-  const user = await User.findById(req.user._id);
-  const { product, quantity } = req.body;
-
-  const cart = await Cart.create({
-    user: user._id,
-    product: product,
-    quantity: quantity,
+  const isExist = await prisma.cart.findFirst({
+    where: { productId: req.body.product, userId: req.user._id }
   });
 
-  await User.findByIdAndUpdate(user._id, {
-    $push: { cart: cart._id },
+  if (isExist) {
+    return res.status(409).json({
+      acknowledgement: false,
+      message: "Conflict",
+      description: "Product already in cart",
+    });
+  }
+
+  await prisma.cart.create({
+    data: {
+      productId: req.body.product,
+      userId: req.user._id,
+      quantity: 1
+    }
   });
 
   res.status(201).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Product added to cart successfully",
+    message: "Created",
+    description: "Product added to cart",
   });
 };
 
-/* get from cart */
-exports.getFromCart = async (res) => {
-  const cart = await Cart.find().populate(["user", "product"]);
+exports.getCarts = async (req, res) => {
+  const carts = await prisma.cart.findMany({
+    where: { userId: req.user._id },
+    include: { product: true }
+  });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Cart fetched successfully",
-    data: cart,
+    message: "OK",
+    description: "Cart retrieved successfully",
+    data: carts,
   });
 };
 
-/* update cart */
 exports.updateCart = async (req, res) => {
-  await Cart.findByIdAndUpdate(req.params.id, req.body);
+  await prisma.cart.update({
+    where: { id: req.params.id },
+    data: { quantity: req.body.quantity }
+  });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
+    message: "OK",
     description: "Cart updated successfully",
   });
 };
 
-/* delete cart */
 exports.deleteCart = async (req, res) => {
-  const cart = await Cart.findByIdAndDelete(req.params.id);
-
-  await User.findByIdAndUpdate(cart.user, {
-    $pull: { cart: cart._id },
+  await prisma.cart.delete({
+    where: { id: req.params.id }
   });
 
   res.status(200).json({
     acknowledgement: true,
-    message: "Ok",
-    description: "Cart deleted successfully",
+    message: "OK",
+    description: "Product removed from cart",
   });
 };

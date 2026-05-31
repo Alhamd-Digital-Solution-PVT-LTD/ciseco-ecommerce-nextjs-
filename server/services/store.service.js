@@ -1,45 +1,25 @@
-/**
- * Title: Write a program using JavaScript on Store Service
- * Author: Hasibul Islam
- * Portfolio: https://devhasibulislam.vercel.app
- * Linkedin: https://linkedin.com/in/devhasibulislam
- * GitHub: https://github.com/devhasibulislam
- * Facebook: https://facebook.com/devhasibulislam
- * Instagram: https:/instagram.com/devhasibulislam
- * Twitter: https://twitter.com/devhasibulislam
- * Pinterest: https://pinterest.com/devhasibulislam
- * WhatsApp: https://wa.me/8801906315901
- * Telegram: devhasibulislam
- * Date: 11, November 2023
- */
-
-/* internal imports */
-const Product = require("../models/product.model");
-const Store = require("../models/store.model");
-const User = require("../models/user.model");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
 const remove = require("../utils/remove.util");
 
 /* add new store */
 exports.addStore = async (req, res) => {
   const { body, file } = req;
 
-  const store = new Store({
+  const storeData = {
     title: body.title,
     description: body.description,
-    thumbnail: {
-      url: file.path,
-      public_id: file.filename,
-    },
     keynotes: JSON.parse(body.keynotes),
     tags: JSON.parse(body.tags),
-    owner: req.user._id,
-  });
+    ownerId: req.user._id,
+  };
 
-  const result = await store.save();
+  if (file) {
+    storeData.thumbUrl = file.path;
+    storeData.thumbId = file.filename;
+  }
 
-  await User.findByIdAndUpdate(result.owner, {
-    $set: { store: result._id },
-  });
+  await prisma.store.create({ data: storeData });
 
   res.status(201).json({
     acknowledgement: true,
@@ -50,13 +30,18 @@ exports.addStore = async (req, res) => {
 
 /* get all stores */
 exports.getStores = async (res) => {
-  const stores = await Store.find().populate([
-    "owner",
-    {
-      path: "products",
-      populate: ["category", "brand", "store"],
-    },
-  ]);
+  const stores = await prisma.store.findMany({
+    include: {
+      owner: true,
+      products: {
+        include: {
+          category: true,
+          brand: true,
+          store: true
+        }
+      }
+    }
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -68,7 +53,9 @@ exports.getStores = async (res) => {
 
 /* get a store */
 exports.getStore = async (req, res) => {
-  const store = await Store.findById(req.params.id);
+  const store = await prisma.store.findUnique({
+    where: { id: req.params.id }
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -80,22 +67,29 @@ exports.getStore = async (req, res) => {
 
 /* update store */
 exports.updateStore = async (req, res) => {
-  const store = await Store.findByIdAndUpdate(req.params.id, req.body);
-  const updatedStore = req.body;
+  const existingStore = await prisma.store.findUnique({ where: { id: req.params.id } });
+  
+  const updatedData = {
+    title: req.body.title || existingStore.title,
+    description: req.body.description || existingStore.description,
+    status: req.body.status || existingStore.status,
+  };
 
   if (!req.body.thumbnail && req.file) {
-    await remove(store.thumbnail.public_id);
-
-    updatedStore.thumbnail = {
-      url: req.file.path,
-      public_id: req.file.filename,
-    };
+    if (existingStore.thumbId && existingStore.thumbId !== "N/A") {
+      await remove(existingStore.thumbId);
+    }
+    updatedData.thumbUrl = req.file.path;
+    updatedData.thumbId = req.file.filename;
   }
 
-  updatedStore.keynotes = JSON.parse(req.body.keynotes);
-  updatedStore.tags = JSON.parse(req.body.tags);
+  if (req.body.keynotes) updatedData.keynotes = JSON.parse(req.body.keynotes);
+  if (req.body.tags) updatedData.tags = JSON.parse(req.body.tags);
 
-  await Store.findByIdAndUpdate(req.params.id, updatedStore);
+  await prisma.store.update({
+    where: { id: req.params.id },
+    data: updatedData
+  });
 
   res.status(200).json({
     acknowledgement: true,
@@ -106,13 +100,18 @@ exports.updateStore = async (req, res) => {
 
 /* delete store */
 exports.deleteStore = async (req, res) => {
-  const store = await Store.findByIdAndDelete(req.params.id);
-  await remove(store.thumbnail.public_id);
+  const store = await prisma.store.findUnique({ where: { id: req.params.id } });
+  
+  if (store.thumbId && store.thumbId !== "N/A") {
+    await remove(store.thumbId);
+  }
 
-  await Product.updateMany({ store: req.params.id }, { $unset: { store: "" } });
-  await User.findByIdAndUpdate(store.owner, {
-    $unset: { store: "" },
+  await prisma.product.updateMany({
+    where: { storeId: store.id },
+    data: { storeId: null }
   });
+
+  await prisma.store.delete({ where: { id: store.id } });
 
   res.status(200).json({
     acknowledgement: true,
